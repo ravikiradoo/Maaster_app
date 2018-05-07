@@ -37,6 +37,8 @@ import java.net.Socket;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.Charset;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -56,6 +58,7 @@ public class MainActivity extends AppCompatActivity {
     EditText editText;
     int id=0;
     String[] Messages ;
+    HashMap<String,JSONObject> hashMap; // Hashmap to store user name with their data
     JSONArray jsonArray;
 
 
@@ -67,6 +70,7 @@ public class MainActivity extends AppCompatActivity {
 
         jsonArray=new JSONArray();
         Messages= new String[4];
+        hashMap=new HashMap<String, JSONObject>();
 
         for(int i=0;i<4;i++)
             Messages[i]="";
@@ -113,7 +117,7 @@ public class MainActivity extends AppCompatActivity {
         if(matcher.matches())
         {
 
-
+                // connecting with remote pc server
 
                 server = new pcServer(Pc_ip,Pcport);
                 server.start();
@@ -174,10 +178,11 @@ public class MainActivity extends AppCompatActivity {
 
     private  class clientHandler extends Thread
     {
-        int Id;
+        // Thread for clients connection
+        String Id;
         DataInputStream dataInputStream;
         String message="";
-        public clientHandler(int id,DataInputStream inputStream)
+        public clientHandler(String id,DataInputStream inputStream)
         {
             this.Id=id;
             dataInputStream=inputStream;
@@ -198,8 +203,9 @@ public class MainActivity extends AppCompatActivity {
                         public void run() {
 
                             try {
-                                JSONObject jsonObject = new JSONObject(message);
-                                Messages[Id]=jsonObject.toString();
+                                final JSONObject jsonObject = new JSONObject(message);
+                                hashMap.put(Id,jsonObject);
+
                                 Thread.sleep(100);
                             } catch (JSONException e) {
                                 e.printStackTrace();
@@ -211,7 +217,9 @@ public class MainActivity extends AppCompatActivity {
                 }
                 catch (final IOException e)
                 {
-
+                    // if user is not available remove user from hashmap
+                    hashMap.remove(Id);
+                    break;
                 }
             }
         }
@@ -241,21 +249,21 @@ public class MainActivity extends AppCompatActivity {
 
                    socket= serverSocket.accept();
                     DataInputStream dataInputStream = new DataInputStream(socket.getInputStream());
+                    DataOutputStream dataOuputStream = new DataOutputStream(socket.getOutputStream());
                     final String name = dataInputStream.readUTF();
+                    if(!hashMap.containsKey(name))
 
-                    clientHandler ch = new clientHandler(id,dataInputStream);
-                    ch.start();
+                    {
+                        dataOuputStream.writeUTF("1");
+                        clientHandler ch = new clientHandler(name, dataInputStream);
+                        ch.start();  // whenever a new client come start a new thread
 
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                           TextView tv = new TextView(MainActivity.this);
-                            tv.setText(name+" Connected");
-                            LinearLayout layout =(LinearLayout) findViewById(R.id.lay1);
-                            layout.addView(tv);
-
-                        }
-                    });
+                    }
+                    else
+                    {
+                        dataOuputStream.writeUTF("0");
+                        socket.close();
+                    }
                     id++;
                 }
 
@@ -299,27 +307,24 @@ private class pcServer extends Thread {
             });
             while(true)
             {   jsonArray= new JSONArray();
-                for(int i=0;i<4;i++)
-                { if(!Messages[i].equals(""))
+                Iterator iterator = hashMap.entrySet().iterator();
+                while (iterator.hasNext())
                 {
-                    JSONObject j1 = new JSONObject(Messages[i]);
-                    jsonArray.put(j1);
-
-                   Messages[i]="";
-
-                }
-                else
-                {
-                    JSONObject jsonObject=new JSONObject();
-                    jsonObject.put("status","offline");
-                    jsonArray.put(jsonObject);
-                }
-
+                HashMap.Entry pair= (HashMap.Entry)iterator.next();
+                    JSONObject j1 =(JSONObject) pair.getValue();
+                    jsonArray.put(j1);  // creating json array
 
                 }
-                JSONObject mainobj = new JSONObject();
+                final JSONObject mainobj = new JSONObject();
                 mainobj.put("Data",jsonArray);
                 dos.writeUTF(mainobj.toString());
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        TextView textView = (TextView)findViewById(R.id.textView);
+                        textView.setText(mainobj.toString());
+                    }
+                });
                 dos.flush();
 
                 Thread.sleep(1000);
@@ -332,7 +337,8 @@ private class pcServer extends Thread {
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    Toast.makeText(MainActivity.this,""+e,Toast.LENGTH_LONG).show();
+                    TextView textView = (TextView)findViewById(R.id.textView);
+                    textView.setText(""+e);
                 }
             });
         }
